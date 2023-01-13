@@ -1,0 +1,109 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+name: Build Package
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["*"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # uses is for linking a repo, which works in its own directories, that is what is supposed to happen, that's why you cant use working-directory with uses
+        working-directory: src
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
+          submodules: 'true'
+      - name: Setup Java Sdk
+        uses: actions/setup-java@v3
+        with:
+          distribution: "zulu"
+          java-version: 11
+      - name: Setup Flutter Sdk
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.3.x"
+          channel: "stable"
+      - name: Sync Flutter Package
+        run: flutter pub get
+      # Archive /tmp/realm-binary/android.tar.gz extracted to /opt/hostedtoolcache/flutter/stable-3.3.10-x64/.pub-cache/hosted/pub.dartlang.org/realm-0.8.0+rc/android/src/main/cpp/lib
+      # - run: mkdir -p /tmp/realm-binary
+      # - run: wget https://github.com/realm/realm-dart/releases/download/0.8.0%2Brc/android.tar.gz -O /tmp/realm-binary/android.tar.gz
+      # - run: mkdir -p $PUB_CACHE/hosted/pub.dartlang.org/realm-0.8.0+rc/android/src/main/cpp/lib/
+      # - run: tar -zxvf /tmp/realm-binary/android.tar.gz -C $PUB_CACHE/hosted/pub.dartlang.org/realm-0.8.0+rc/android/src/main/cpp/lib/
+      # - run: echo "0.8.0+rc" > $PUB_CACHE/hosted/pub.dartlang.org/realm-0.8.0+rc/android/src/main/cpp/lib/realm_version.txt
+      - name: Build Flutter
+        run: flutter build apk --split-per-abi
+      - name: Show Build APKs
+        run: pwd; ls -R build/app/outputs/apk/release/
+      - name: Upload Apks to Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: apk-release
+          path: src/build/app/outputs/apk/release/
+          retention-days: 3
+      - name: Setup tmate session
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+
+  release:
+    name: Release APK
+    needs: build
+    # if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Download APKs from build
+        uses: actions/download-artifact@v2
+        with:
+          name: apk-release
+          path: apk-release
+      - name: Display APKs
+        run: ls -R apk-release/
+      - name: Rename APKs & Clean Upyun
+        run: python .github/gen_updater_meta.py
+        env:
+          download_host: ${{ secrets.DOWNLOAD_HOST }}
+          service: ${{ secrets.UPYUN_BUCKET }}
+          username: ${{ secrets.UPYUN_OPERATOR }}
+          password: ${{ secrets.UPYUN_OPERATOR_PASSWORD }}
+      - name: Generate Changelog
+        run: echo "# Good things have arrived" > ${{ github.workspace }}-CHANGELOG.txt
+      - name: Deploy pubilsh 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: apk-release/apks/
+          token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
+          repository-name: wshon/BloodSugarRecorder
+          branch: publish
+          target-folder: apks
+          single-commit: true
+      - name: Deploy upyun 🚀
+        uses: bwcxyk/upyun-upx-action@1.1
+        env:
+          bucket: ${{ secrets.UPYUN_BUCKET }}
+          operator: ${{ secrets.UPYUN_OPERATOR }}
+          operator_password: ${{ secrets.UPYUN_OPERATOR_PASSWORD }}
+          local_path: apk-release/
+          remote_path: /BloodSugarRecorder/
+      - name: Setup tmate session
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+
