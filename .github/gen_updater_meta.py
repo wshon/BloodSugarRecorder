@@ -43,7 +43,7 @@ for file_name in os.listdir('.'):
         mate_file = f'updater_{abi}.json'
     print(f'rename {file_name} to {apk_path}')
     os.rename(file_name, apk_path)
-    apk_size = os.path.getsize(apk_path)
+    apk_size = os.path.getsize(apk_path) / 1024
     print(f'apk_size is {apk_size}')
     apk_md5 = get_file_md5(apk_path)
     print(f'apk_md5 is {apk_md5}')
